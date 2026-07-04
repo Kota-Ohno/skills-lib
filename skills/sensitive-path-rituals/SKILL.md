@@ -14,6 +14,8 @@ Some paths in a codebase ARE the product's security promise. A project declares 
 - A diff (yours or reviewed) touches a declared sensitive path, or an obviously boundary-relevant area even if undeclared (crypto, auth, key handling, IPC/MCP tool surface, payment flows, permission/sensitivity policy).
 - Setting up or improving boundary declarations for a project.
 
+This skill COMPOSES with review skills — it adds a completion gate on top of whatever review runs (e.g. `fresh-eyes-review` on the same diff) and never replaces the review itself.
+
 ## When NOT to use
 
 - Changes entirely outside declared paths that don't alter how declared code is called.

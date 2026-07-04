@@ -62,7 +62,7 @@ For the observed symptom, walk its hypotheses IN ORDER; each has a probe. Stop a
 
 ### Symptom: loop that "converges"/"ties" suspiciously
 
-1. Probe: grep the loop's transcripts for empty responses being consumed as answers. Fix: add the empty-is-not-an-answer guard (rule 2), then re-run the loop. If a refinement loop is not converging, serial refinement gains die after the first round — switch to parallel width + selection (see sample-select-polish).
+1. Probe: grep the loop's transcripts for empty responses being consumed as answers. Fix: add the empty-is-not-an-answer guard (rule 2), then re-run the loop. If a refinement loop is not converging, stop iterating: in the 48-task benchmark, parallel width + selection + one review round matched the review-to-convergence loop (mean 1.85 rounds on that run) at 0.58x cost — switch to that shape (see sample-select-polish). This does not cap a standalone fresh-eyes-review audit, which loops to convergence by design.
 
 ## Common mistakes
 

@@ -32,7 +32,7 @@ Ask each role-agent for this shape. `rationale` is optional; the rest are requir
 }
 ```
 
-A finding is **kept** only when `verdict === "confirmed"`. Anything else is a false positive and is filtered (but a few are surfaced in the report's `false_positives` so the user can see the rigor).
+Keep rule: `confirmed` → keep. `refuted`/`uncertain` → filter out (surface a few in the report's `false_positives` so the user can see the rigor). **Skeptic call failed or returned nothing → keep the finding marked `[unverified]`** (prefix its `problem` field) — a failed verification is UNKNOWN, not a refutation, and silently dropping it fakes convergence. Never drop a finding just because its skeptic died.
 
 ## Report — what the workflow returns to you
 
@@ -50,9 +50,12 @@ A finding is **kept** only when `verdict === "confirmed"`. Anything else is a fa
       "roles": ["security", "correctness"]
     }
   ],
-  "false_positives": [{ "title": "...", "why": "..." }]
+  "false_positives": [{ "title": "...", "why": "..." }],
+  "failed_roles": ["performance"]
 }
 ```
+
+Unverified findings appear in `findings` with `[unverified]` prefixed to their `problem` field. `failed_roles` lists lanes whose reviewer call errored or returned nothing — those domains were NOT reviewed this round. When the final synthesize/merge step itself fails, the report carries `synthesize_failed: true` and `findings` holds the raw (undeduplicated) survivors — such a round can never be declared converged.
 
 ## Severity guidance
 
@@ -64,9 +67,11 @@ A finding is **kept** only when `verdict === "confirmed"`. Anything else is a fa
 
 ## Convergence (decided by you, the main agent — not the workflow)
 
-A round has **new notable findings** if any confirmed finding has severity `medium` or higher **and** its title is not already in `alreadyAddressed`.
+A round has **new notable findings** if any confirmed OR `[unverified]` finding has severity `medium` or higher **and** its title is not already in `alreadyAddressed`.
 
-- **Converged** → a round with zero new notable findings. Stop.
+- **Converged** → a round with zero new notable findings AND no failed lanes (`failed_roles` empty). Stop.
+- **Unverified medium+ findings block convergence** — adjudicate them yourself (read the artifact) or re-run their skeptics before declaring the round clean.
+- **Failed lanes were never reviewed** — a round cannot declare convergence for a domain whose reviewer died; re-run that role.
 - **Hard cap** → stop after 4 rounds regardless, and report what remains.
 - `low`/`nit` findings are listed and may be fixed, but they never block convergence on their own — otherwise the loop chases nits forever.
 

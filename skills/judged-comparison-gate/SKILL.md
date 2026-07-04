@@ -1,13 +1,13 @@
 ---
 name: judged-comparison-gate
-description: Use when designing, running, or interpreting an LLM-as-judge comparison — pairwise A/B, tournament, win-rate eval, model shootout, or prompt-variant bake-off — or when someone presents judged results ("X beats Y", "significant win") and asks whether to believe them. Also use before spending money on a judged eval run. Trigger phrases: "LLM judge", "win rate", "pairwise eval", "A/Bテスト判定", "LLM審査". Fires on reported judged results even as bare statements ("Aの勝ち") with no question attached.
+description: Use when designing, running, or interpreting an LLM-as-judge comparison — pairwise A/B, tournament, win-rate eval, model shootout, or prompt-variant bake-off — or when someone presents judged results ("X beats Y", "significant win") and asks whether to believe them. Also use before spending money on a judged eval run. Trigger phrases: "LLM judge", "win rate", "pairwise eval", "A/Bテスト判定", "LLM審査". Fires on reported judged results even as bare statements ("Aの勝ち") with no question attached. NOT for intra-pipeline draft selection among an agent's own candidates (e.g. the sample-select-polish tournament) — the gate applies only when a judged result becomes a reportable quality claim.
 ---
 
 # Judged Comparison Gate
 
 ## Overview
 
-An LLM-as-judge comparison is a measurement instrument, and an uncalibrated instrument produces confident garbage: a real experiment flipped from a significant WIN to a significant LOSS once length bias alone was removed. This gate runs a pre-flight checklist before money is spent and a post-hoc audit before any result is believed.
+An LLM-as-judge comparison is a measurement instrument, and an uncalibrated instrument produces confident garbage: verbosity bias is the canonical confound in the judged-eval literature, and in the frugal-fusion corpus a directional win at n=17 dissolved into a statistical tie at n=48 once properly measured (Rounds 5→6 of its docs/EXPERIMENT_RESULTS.md) — controls and sample size change conclusions. This gate runs a pre-flight checklist before money is spent and a post-hoc audit before any result is believed.
 
 ## When to use
 
@@ -19,6 +19,7 @@ An LLM-as-judge comparison is a measurement instrument, and an uncalibrated inst
 
 - Evals with deterministic ground truth (exact match, unit tests, execution accuracy) — no judge, no gate.
 - Single-output quality rubric scoring with no comparison claim (still watch length bias, but this gate's pairwise machinery does not apply).
+- Intra-pipeline draft selection (e.g. the `sample-select-polish` tournament): the output is a working selection among an agent's own drafts, not a comparative conclusion anyone will report or believe. The gate applies only when a judged result becomes a quality claim.
 
 ## Hard rules
 
@@ -27,7 +28,7 @@ An LLM-as-judge comparison is a measurement instrument, and an uncalibrated inst
 3. **The judge prompt MUST contain an explicit "do not reward length or verbosity" instruction.** Absent that line, do not launch.
 4. **Every judge model's family MUST be disjoint from every system under test.** A judge from the same family as a contestant is self-preference bias; STOP and swap the judge. Use a majority panel, not a single judge.
 5. **Always record answer lengths per item.** If the sides show a large systematic length gap (rule of thumb: median lengths differing by >30%), the comparison is INVALID until length is controlled — truncate, length-match, or regress it out. This is the default confound, not an edge case.
-6. **No quality conclusion from n=1–2.** Tiny pilots detect plumbing errors only; the identical setup has produced opposite conclusions at n=1 and n=48. A quality claim requires ~30+ items and a bootstrap confidence interval over item-level outcomes.
+6. **No quality conclusion from n=1–2.** Tiny pilots detect plumbing errors only; in the frugal-fusion corpus a directional win at n=17 became a statistical tie at n=48 (Rounds 5→6). A quality claim requires ~30+ items and a bootstrap confidence interval over item-level outcomes.
 7. **An empty judge response is NOT a tie.** It is usually a starved or failed call (see `llm-call-triage`). Count empties in a separate bucket; if empties exceed ~5% of judgments, STOP and fix the calls before interpreting anything.
 
 ## Process

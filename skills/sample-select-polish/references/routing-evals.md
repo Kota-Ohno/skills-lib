@@ -17,7 +17,8 @@ A pass requires both the right tier AND no un-asked-for escalation.
 | 8   | この関数って何をしてるの?                                          | Tier 3: neither                                                                                                        | Q&A / exploratory chat                                                                       |
 | 9   | (5タスクの実装計画の途中で) 次はDBマイグレーションのタスクをやって | Composition rule: sample-select-polish on this task ONLY if it is the plan's riskiest artifact; otherwise normal draft | Inside a larger plan, ssp goes to the single riskiest artifact, not every Tier-1-shaped task |
 | 10  | (ssp勝者を渡して) 念のためもう一回フルレビューして                 | Decline the extra round: explain the one-round discipline, offer a bounded re-sample if critical issues are suspected  | Tier 2 exception + anti-pattern: an ssp winner already had its review round                  |
+| 11  | 設定ローダーの設計メモを書いて                                     | Escalation path: ONE normal draft first (no sampling)                                                                  | Tier-1-shaped (design doc) but no hardness signal — small scope, low stakes, no ship destination; the hardness test routes it to draft-first |
 
-Scoring: 10/10 = policy holds. Failures on #9/#10 (the composition and
-discipline rules) matter more than #1-8 (plain routing) — they are where
-weaker models drift first, and where the cost blowups live.
+Scoring: 11/11 = policy holds. Failures on #9/#10/#11 (the composition and
+discipline/hardness rules) matter more than #1-8 (plain routing) — they are
+where weaker models drift first, and where the cost blowups live.

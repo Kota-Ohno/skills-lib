@@ -18,9 +18,10 @@ source of truth for the user's personal skills, replacing the current dual manag
    → Anti-patterns); weaknesses to avoid: broken English, no plugin packaging, no
    runnable validation, 5/10 skills being meta-skills about skills.
 2. **User profile**: TS/Node + Rust/Tauri + LLM-ops stacks; superpowers + ~30 plugins
-   installed; SSP policy and LLM-OPS rules live in always-loaded CLAUDE.md; a dead
-   `rtk` hook fires on every Bash call (binary missing) — live evidence that declared
-   automations drift from reality; `.remember/` accumulates without consolidation.
+   installed; SSP policy and LLM-OPS rules live in always-loaded CLAUDE.md; at design
+   time a dead `rtk` hook fired on every Bash call (binary missing) — live evidence
+   that declared automations drift from reality (historical snapshot: rtk has since
+   been installed and works); `.remember/` accumulates without consolidation.
 3. **Prior art**: process skills with hard gates win; descriptions are routing rules
    (trigger conditions ONLY, never workflow summaries); SKILL.md < 500 lines;
    progressive disclosure via references/ and scripts/; eval-first culture.
@@ -85,9 +86,14 @@ always-loaded `LLM-OPS.md` into on-demand skills — the pack pays for itself in
 
 ## Authoring rules (binding for every skill)
 
-1. Frontmatter: `name` (kebab, ≤64), `description` third person, starts with
-   "Use when", trigger conditions ONLY — never a workflow summary, ≤500 chars,
-   may include a couple of Japanese trigger phrases.
+1. Frontmatter: `name` (kebab, ≤64), `description` third person, trigger
+   conditions first and foremost — lead with when to use ("Use when" phrasing
+   preferred) and include at least one NOT-trigger for expensive skills; never
+   let a workflow summary displace the trigger conditions. Hard length limit
+   ≤1024 chars (validate.sh-enforced); aim for ≤500. May include a couple of
+   Japanese trigger phrases. Carve-out: the two adopted orchestration skills
+   (sample-select-polish, fresh-eyes-review) open with a one-sentence workflow
+   summary before their triggers — accepted as-is at adoption, within 1024.
 2. Body < 300 lines, target < 150. Skeleton: Overview (core principle in ≤2
    sentences) → When to use / When NOT to use → Hard rules → Process (numbered)
    → Output contract (copyable markdown template) where a report is produced →

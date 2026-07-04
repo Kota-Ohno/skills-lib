@@ -1,6 +1,6 @@
 ---
 name: fresh-eyes-review
-description: Run an iterative, multi-perspective review where independent fresh-context agents (who have NO memory of how the work was built) each scrutinize the artifact from one assigned role — security, correctness, performance, robustness, etc. — then an independent skeptic tries to refute each finding to kill false positives, you apply the fixes yourself, and the cycle repeats until a round surfaces no new notable issues. Use this whenever the user wants a thorough, unbiased review of code, a git diff, a design doc, API spec, config, infra, or any work product — especially when they say "review", "audit", "find issues/bugs", "check this", "another pair of eyes", "what did I miss", "rip this apart", or want a review→fix→re-review loop run to convergence. Lean toward triggering it: fresh-eyes review reliably catches problems a single context-bound pass misses.
+description: Run an iterative, multi-perspective review where independent fresh-context agents each scrutinize the artifact from one assigned role — security, correctness, performance, robustness, etc. — then an independent skeptic tries to refute each finding to kill false positives, you apply the fixes yourself, and the cycle repeats until a round surfaces no new notable issues. Use whenever the user wants a thorough, unbiased review of code, a git diff, a design doc, API spec, config, infra, or any work product — especially on "review", "audit", "find issues/bugs", "check this", "what did I miss", "rip this apart", or a review→fix→re-review loop to convergence. Lean toward triggering it for real review requests. NOT for trivial edits, artifacts already reviewed this session, or polishing a sample-select-polish winner (exactly one round there, per the SSP policy).
 ---
 
 # Fresh-Eyes Multi-Perspective Review
@@ -25,9 +25,16 @@ Never blur these roles. Do not "just review it myself" during the review phase �
 
 Trigger whenever a thorough, unbiased review is wanted — code, a git diff, a design doc, API spec, config, infra, or any artifact. Especially when the user wants the review→fix→re-review loop run to convergence ("keep going until it's clean", "fix what you find and re-check").
 
+## When NOT to use
+
+- Routine edits and trivial changes — skip entirely (SSP policy Tier 3). The single-round option in the cost section is for low-stakes but *nontrivial* work, not for trivial edits.
+- An artifact that already had its review round this session.
+- Polishing a `sample-select-polish` winner: run exactly ONE round there — the SSP policy's bounded re-sample rule replaces the convergence loop for that case. The loop below applies to standalone reviews.
+- A domain-specific audit another skill owns — the SSP policy's precedence rule applies: any reviewer/auditor skill that matches the task more specifically wins (non-exhaustive examples: `automation-doctor`, `release-readiness`, `context-economy`, `perf-triage`, `deps-upgrade`, `judged-comparison-gate`). Gate-style skills (`sensitive-path-rituals`, `irreversible-ops`) COMPOSE with this review — they add a completion gate on top of it, they never replace it.
+
 ## Cost, and when the full loop is worth it
 
-This skill is expensive by design. Each round fans out one fresh-context agent per role plus an independent skeptic per finding, and the loop runs multiple rounds — a thoroughly-reviewed artifact can take many minutes and spawn dozens of sub-agents. That cost is the price of depth and false-positive filtering; it is worth paying for **high-stakes** work: security-sensitive code, payment or auth paths, anything about to ship, or a design doc before committing to build. For a quick gut-check on low-stakes code, run a **single round** (one fan-out, no fix-loop) and report — skip the iteration. Matching rigour to stakes is part of using the skill well.
+This skill is expensive by design. Each round fans out one fresh-context agent per role plus an independent skeptic per finding, and the loop runs multiple rounds — a thoroughly-reviewed artifact can take many minutes and spawn dozens of sub-agents. That cost is the price of depth and false-positive filtering; it is worth paying for **high-stakes** work: security-sensitive code, payment or auth paths, anything about to ship, or a design doc before committing to build. For low-stakes but nontrivial work, run a **single round** (one fan-out, no fix-loop) and report — skip the iteration (trivial edits get no review at all: SSP Tier 3). Matching rigour to stakes is part of using the skill well.
 
 ## How to run the loop
 
@@ -57,14 +64,16 @@ Workflow({
 })
 ```
 
-The workflow returns `{ summary, findings: [...], false_positives: [...] }`. Each finding has `severity` (critical/high/medium/low/nit), `location`, `problem`, `recommendation`, `rationale`. (`references/finding-schema.md` has the full shapes.)
+The workflow returns `{ summary, findings: [...], false_positives: [...], failed_roles: [...] }` (plus `synthesize_failed: true` when the final merge agent died and the report is the raw survivors). Each finding has `severity` (critical/high/medium/low/nit), `location`, `problem`, `recommendation`, `rationale`. (`references/finding-schema.md` has the full shapes.)
 
 **Each round:**
 1. Read the returned `findings`.
 2. **Apply the fixes yourself** for confirmed findings using your normal edit tools. Make real changes to the real files — this is where your context pays off. Skip pure nits unless the user wants them.
 3. Add each fixed finding's `title` to `alreadyAddressed` so the next round does not re-report it.
-4. Decide convergence: **stop when a round produces no new confirmed findings at severity medium or above.** Low/nits are collected but do not block convergence. Don't manufacture work to fill rounds — if a round comes back clean (or only nits), stop immediately. The loop exists to catch real issues and real regressions, not to justify its own runtime.
+   If `failed_roles` is non-empty, re-invoke the workflow with `roles` set to just the failed lanes — a targeted re-run completes the same round (it does not count against the 4-round cap), and the round converges if the re-run lanes come back clean.
+4. Decide convergence: **stop when a round produces no new confirmed findings at severity medium or above, no `[unverified]` medium+ findings, no failed lanes, and no `synthesize_failed` flag** (`failed_roles` in the result — a lane whose reviewer died was not reviewed; unverified findings need your own adjudication or a skeptic re-run; a synthesize-failed round returned raw survivors and cannot be judged converged). Low/nits are collected but do not block convergence. Don't manufacture work to fill rounds — if a round comes back clean (or only nits), stop immediately. The loop exists to catch real issues and real regressions, not to justify its own runtime.
 5. Hard cap: stop after **4 rounds** even if issues remain, and say so plainly.
+6. Exception: when the artifact is a fresh `sample-select-polish` winner, run ONE round only — surviving critical issues signal re-sampling, not another review round (see the SSP policy).
 
 ### 3. Report
 
@@ -79,7 +88,7 @@ When converged (or capped), summarize: rounds run, what was fixed, any residual 
 
 ## If the Workflow tool is unavailable
 
-Fall back to the Agent tool with the same shape: in one message, spawn one subagent per role (parallel `Agent` calls), each told to read the files cold and return the finding shape; then spawn one skeptic subagent per finding to refute; then dedup and prioritize the survivors yourself. Same loop, same convergence rule, same 4-round cap. The shapes to ask for are in `references/finding-schema.md`.
+Fall back to the Agent tool with the same shape: in one message, spawn one subagent per role (parallel `Agent` calls), each told to read the files cold and return the finding shape; then spawn one skeptic subagent per finding to refute; then dedup and prioritize the survivors yourself. A skeptic that fails or returns nothing does NOT kill its finding — keep it marked `[unverified]` (see `references/finding-schema.md`); unverified medium+ findings block convergence. Same loop, same convergence rule, same 4-round cap. The shapes to ask for are in `references/finding-schema.md`.
 
 ## References
 - `references/role-sets.md` — curated role sets by artifact type, plus how to write a strong lens and build a custom role.

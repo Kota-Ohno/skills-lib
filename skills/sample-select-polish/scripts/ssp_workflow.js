@@ -5,8 +5,9 @@
 //
 // The CALLING (main) agent then runs the Polish stage itself: ONE round of
 // fresh-eyes-review on the winner, fixing surviving findings with its own
-// full context. Do not loop the polish — refinement gains die after the
-// first round (see SKILL.md).
+// full context. Do not loop the polish — prefer re-sampling; a second
+// polish round is the fallback for when re-sampling is impossible
+// (see SKILL.md).
 //
 // args = {
 //   task:     string — what to produce, with every requirement spelled out
@@ -15,7 +16,7 @@
 //             every draft (e.g. "under 600 words", "TypeScript only")
 //   n:        number — draft count, 2..6 (default 6; one per persona)
 // }
-// returns { winner, persona, candidates, matches, empty_drafts }
+// returns { winner, persona, candidates, matches, empty_drafts, empty_judgments }
 
 export const meta = {
   name: "sample-select",
@@ -36,8 +37,8 @@ export const meta = {
 
 // Diversity lives at draft time: each agent gets one engineering stance.
 // Mirrors DRAFT_PERSONAS in the benchmark harness (src/sampleSelect.ts of
-// the frugal-fusion repo), where this pipeline tied a 2-round adversarial
-// review loop's quality at 0.58x cost on 48 hard tasks.
+// the frugal-fusion repo), where this pipeline tied the review-to-convergence
+// loop's quality (mean 1.85 rounds on that run) at 0.58x cost on 48 hard tasks.
 const PERSONAS = [
   {
     key: "correctness",
@@ -76,8 +77,16 @@ if (!task)
     "args.task is required: the full task statement the drafting agents will work from",
   );
 const guidance = (args && args.guidance) || "";
-const requested = (args && args.n) || 6;
-const n = Math.max(2, Math.min(6, requested));
+const rawN = args ? args.n : undefined;
+let n = 6;
+if (rawN !== undefined && rawN !== null) {
+  const parsed = Number(rawN);
+  if (!Number.isFinite(parsed))
+    throw new Error(
+      "args.n must be a number in 2..6, got: " + JSON.stringify(rawN),
+    );
+  n = Math.max(2, Math.min(6, Math.floor(parsed)));
+}
 
 function draftPrompt(persona) {
   return [
@@ -135,12 +144,18 @@ log(
 const draftResults = await parallel(
   PERSONAS.slice(0, n).map(function (p) {
     return function () {
+      // A rejected draft call must not abort the whole sample stage — drop
+      // it into the existing empty-draft path so it is counted and logged.
       return agent(draftPrompt(p), {
         label: "draft:" + p.key,
         phase: "Sample",
-      }).then(function (text) {
-        return { key: p.key, text: text };
-      });
+      })
+        .then(function (text) {
+          return { key: p.key, text: text };
+        })
+        .catch(function () {
+          return { key: p.key, text: "" };
+        });
     };
   }),
 );
@@ -164,6 +179,7 @@ let pool = alive.map(function (_, i) {
 });
 let roundIndex = 0;
 let matchCount = 0;
+let emptyJudgments = 0;
 while (pool.length > 1) {
   const matches = [];
   const pairCount = Math.floor(pool.length / 2);
@@ -180,15 +196,42 @@ while (pool.length > 1) {
   const winners = await parallel(
     matches.map(function (match) {
       return function () {
+        // An empty/errored judgment is NOT a verdict (LLM-OPS: a starved
+        // judge silently corrupts selection). Retry the match once; if it
+        // is still empty, advance the A side but COUNT and LOG it so the
+        // caller can see the selection was degraded.
+        const label =
+          "match:" + alive[match.a].key + "-vs-" + alive[match.b].key;
+        function isVerdict(v) {
+          return v && (v.winner === "A" || v.winner === "B");
+        }
         return agent(matchPrompt(alive[match.a].text, alive[match.b].text), {
-          label: "match:" + alive[match.a].key + "-vs-" + alive[match.b].key,
+          label: label,
           phase: "Select",
           schema: VERDICT_SCHEMA,
-        }).then(function (v) {
-          // A skipped/errored judge yields null — default to the A side
-          // (presentation alternation keeps this from biasing one draft).
-          return v && v.winner === "B" ? match.b : match.a;
-        });
+        })
+          .catch(function () {
+            return null;
+          })
+          .then(function (v) {
+            if (isVerdict(v)) return v;
+            return agent(
+              matchPrompt(alive[match.a].text, alive[match.b].text),
+              { label: label + ":retry", phase: "Select", schema: VERDICT_SCHEMA },
+            ).catch(function () {
+              return null;
+            });
+          })
+          .then(function (v) {
+            if (isVerdict(v)) return v.winner === "B" ? match.b : match.a;
+            emptyJudgments += 1;
+            log(
+              "EMPTY/FAILED judgment (after retry) in " +
+                label +
+                " — advancing the A side by default; recorded in empty_judgments",
+            );
+            return match.a;
+          });
       };
     }),
   );
@@ -214,4 +257,5 @@ return {
   candidates: alive.length,
   matches: matchCount,
   empty_drafts: emptyDrafts,
+  empty_judgments: emptyJudgments,
 };

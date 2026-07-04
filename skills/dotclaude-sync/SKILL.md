@@ -28,7 +28,7 @@ Personal skills and config live in a git repo (source of truth) and are deployed
 3. NEVER overwrite a DIVERGED file in either direction without showing the user the diff and getting an explicit choice.
 4. NEVER resolve deployed-ahead drift by overwriting from the repo. Deployed-ahead means someone hot-fixed live: pull that change back into the repo FIRST, commit, then deploy.
 5. Deploy is copy-only (repo → `~/.claude`). No transformations, merges, or "improvements" during the copy.
-6. Never deploy a skill to `~/.claude/skills/` that an installed plugin already provides — plugin-shipped skills are excluded from deployment; duplicates make routing nondeterministic.
+6. Never deploy a skill to `~/.claude/skills/` that an installed plugin already provides — plugin-shipped skills are excluded from deployment; duplicates make routing nondeterministic. This includes the case where the providing plugin is built from this same repo: do not deploy those skills either — the plugin channel already serves them; report the overlap instead of copying.
 
 ## Process
 

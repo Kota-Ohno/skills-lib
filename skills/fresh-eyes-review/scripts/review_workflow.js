@@ -12,7 +12,10 @@
 //   roles:            [{ key, name, lens }] — omit for the built-in default set
 //   alreadyAddressed: [string] — finding titles fixed in prior rounds
 // }
-// returns { summary, findings: [...], false_positives: [...] }
+// returns { summary, findings: [...], false_positives: [...], failed_roles: [...] }
+// (+ synthesize_failed: true when the final merge agent died and the report
+//  was built directly from the raw survivors — convergence must not be
+//  declared from such a round)
 
 export const meta = {
   name: 'fresh-eyes-review',
@@ -153,19 +156,32 @@ log('Reviewing across ' + roles.length + ' roles: ' + roles.map(function (r) { r
 
 // Pipeline: each role's findings get verified as soon as that role finishes —
 // no barrier waiting on slower roles.
+// An errored/empty reviewer is NOT a clean lane (LLM-OPS: never treat an
+// empty response as an explicit NONE) — track failed lanes so the caller
+// knows those domains were never actually reviewed.
+var failedRoles = []
 const perRole = await pipeline(
   roles,
   function (role) {
     return agent(reviewPrompt(role), { label: 'review:' + role.key, phase: 'Review', schema: FINDINGS_SCHEMA })
+      .catch(function () { return null })
   },
   function (result, role) {
-    var findings = (result && result.findings) || []
+    if (!result || !Array.isArray(result.findings)) {
+      failedRoles.push(role.key)
+      log('Role ' + role.key + ' errored or returned nothing — lane NOT reviewed (recorded in failed_roles)')
+      return []
+    }
+    var findings = result.findings
     if (!findings.length) return []
     return parallel(findings.map(function (f) {
       return function () {
+        // A failed/empty skeptic must NOT erase the finding it was verifying
+        // (an empty verdict is not a refutation — see LLM-OPS "starved skeptic
+        // reads as converged"). Keep the finding with verdict: null instead.
         return agent(verifyPrompt(f), { label: 'verify:' + role.key + ':' + String(f.title || '').slice(0, 24), phase: 'Verify', schema: VERDICT_SCHEMA })
-          .then(function (v) { return { finding: f, role: role.key, verdict: v } })
-          .catch(function () { return null })
+          .then(function (v) { return { finding: f, role: role.key, verdict: v || null } })
+          .catch(function () { return { finding: f, role: role.key, verdict: null } })
       }
     }))
   }
@@ -173,16 +189,35 @@ const perRole = await pipeline(
 
 var verified = perRole.flat().filter(Boolean)
 var survivors = verified.filter(function (x) { return x.verdict && x.verdict.verdict === 'confirmed' })
-var refuted = verified.filter(function (x) { return x.verdict && x.verdict.verdict !== 'confirmed' })
+var refuted = verified.filter(function (x) { return x.verdict && x.verdict.verdict && x.verdict.verdict !== 'confirmed' })
+// Skeptic errored or returned nothing: verification is UNKNOWN, not refuted.
+// These flow into the report as unverified findings so they cannot silently
+// vanish and fake convergence.
+var unverified = verified.filter(function (x) { return !(x.verdict && x.verdict.verdict) })
 
-log('Reviewers raised ' + verified.length + ' findings — ' + survivors.length + ' confirmed, ' + refuted.length + ' refuted/uncertain')
+log('Reviewers raised ' + verified.length + ' findings — ' + survivors.length + ' confirmed, ' + refuted.length + ' refuted/uncertain'
+  + (unverified.length ? ', ' + unverified.length + ' UNVERIFIED (skeptic call failed — passed through, not dropped)' : '')
+  + (failedRoles.length ? '; FAILED lanes (not reviewed): ' + failedRoles.join(', ') : ''))
 
 phase('Synthesize')
+// Nothing to merge → skip the synthesize agent entirely (so a dead merge
+// agent can never block convergence on an actually-clean round).
+if (!survivors.length && !unverified.length) {
+  log('No confirmed or unverified findings — skipping synthesize; round is clean')
+  return {
+    summary: 'No confirmed findings survived verification this round.',
+    findings: [],
+    false_positives: refuted.slice(0, 8).map(function (x) {
+      return { title: x.finding.title, why: (x.verdict && x.verdict.reasoning) || '' }
+    }),
+    failed_roles: failedRoles,
+  }
+}
 var report = await agent(
   [
-    'You are the LEAD reviewer. Merge and prioritize these CONFIRMED findings that survived adversarial verification from multiple fresh-eyes reviewers.',
+    'You are the LEAD reviewer. Merge and prioritize these findings from multiple fresh-eyes reviewers. CONFIRMED findings survived adversarial verification; UNVERIFIED findings could not be verified because the skeptic call failed — include them too, marked "[unverified]" at the start of their problem field, so the caller can double-check them (they must not be silently dropped).',
     '',
-    'Deduplicate overlaps across roles (the same issue flagged by several roles becomes ONE finding — list the roles that raised it). Order findings by severity (critical first). Apply the verifier\'s corrected_severity where one was given. Produce a tight, actionable report. If there are no confirmed findings, return an empty findings array and say so in the summary — that empty list signals convergence to the caller.',
+    'Deduplicate overlaps across roles (the same issue flagged by several roles becomes ONE finding — list the roles that raised it). Order findings by severity (critical first). Apply the verifier\'s corrected_severity where one was given. Produce a tight, actionable report. If there are no confirmed or unverified findings, return an empty findings array and say so in the summary — that empty list signals convergence to the caller.',
     '',
     '## Confirmed findings',
     JSON.stringify(survivors.map(function (x) {
@@ -197,12 +232,50 @@ var report = await agent(
       }
     }), null, 2),
     '',
+    '## Unverified findings (skeptic failed — verification unknown)',
+    JSON.stringify(unverified.map(function (x) {
+      return {
+        role: x.role,
+        title: x.finding.title,
+        severity: x.finding.severity,
+        location: x.finding.location,
+        problem: x.finding.problem,
+        recommendation: x.finding.recommendation,
+        rationale: x.finding.rationale,
+      }
+    }), null, 2),
+    '',
     '## Notable false positives (refuted/uncertain) — list a few so the caller can see what was filtered out',
     JSON.stringify(refuted.slice(0, 8).map(function (x) {
       return { title: x.finding.title, why: x.verdict && x.verdict.reasoning }
     }), null, 2),
   ].join('\n'),
   { label: 'synthesize', phase: 'Synthesize', schema: REPORT_SCHEMA }
-)
+).catch(function () { return null })
 
-return report
+// A dead/empty synthesizer must not eat the round: the raw survivors are in
+// hand, so return them directly as a degraded (undeduplicated) report with
+// synthesize_failed: true — which blocks convergence for the caller.
+if (!report || !Array.isArray(report.findings)) {
+  log('Synthesize agent failed — returning degraded report built from raw survivors (synthesize_failed: true)')
+  report = {
+    summary: 'SYNTHESIZE FAILED — degraded report: raw confirmed + unverified findings, not deduplicated or re-prioritized. Do not treat this round as converged.',
+    findings: survivors.concat(unverified).map(function (x) {
+      return {
+        title: x.finding.title,
+        severity: (x.verdict && x.verdict.corrected_severity) || x.finding.severity,
+        location: x.finding.location,
+        problem: ((x.verdict && x.verdict.verdict) ? '' : '[unverified] ') + x.finding.problem,
+        recommendation: x.finding.recommendation,
+        rationale: x.finding.rationale,
+        roles: [x.role],
+      }
+    }),
+    false_positives: [],
+    synthesize_failed: true,
+  }
+}
+
+// failed_roles: lanes whose reviewer errored/returned nothing. Those domains
+// were NOT reviewed — the caller must not declare convergence for them.
+return Object.assign({}, report, { failed_roles: failedRoles })

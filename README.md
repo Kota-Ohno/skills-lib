@@ -26,10 +26,11 @@ cp -R skills/* ~/.claude/skills/          # global
 cp -R skills/* your-project/.claude/skills/  # per-project
 ```
 
-> **After a plugin install:** if `sample-select-polish` or `fresh-eyes-review`
-> already exist as loose copies under `~/.claude/skills/`, delete those copies —
-> otherwise two skills with identical descriptions compete for every routing
-> decision. Pick ONE install channel (plugin or manual copy), never both.
+> **After a plugin install:** if ANY superkit skill already exists as a loose
+> copy under `~/.claude/skills/`, delete that copy — otherwise two skills with
+> identical descriptions compete for every routing decision (the collision is
+> worst for `sample-select-polish` and `fresh-eyes-review`, whose descriptions
+> are broad). Pick ONE install channel (plugin or manual copy), never both.
 
 ## Skills
 
@@ -79,7 +80,10 @@ Composition with superpowers: requirements exploration (brainstorming) comes fir
 ## Design principles
 
 1. **Descriptions are routing rules.** They state *when* to trigger, never summarize
-   the workflow (agents shortcut the body otherwise).
+   the workflow (agents shortcut the body otherwise). One carve-out: the two
+   adopted orchestration skills open with a one-sentence workflow summary before
+   their triggers — accepted as-is at adoption (DESIGN.md authoring rule 1 is
+   authoritative).
 2. **Hard rules are prohibitions with stop conditions**, not "consider" advice.
 3. **Output contracts.** Skills that produce reports ship a copyable template, so
    compliance is inspectable.

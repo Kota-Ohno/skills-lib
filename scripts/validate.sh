@@ -36,13 +36,32 @@ for dir in skills/*/; do
   [ "$lines" -le 300 ] || warn "$name: SKILL.md is $lines lines (>300)"
 
   # description should be a trigger rule, not a workflow summary
+  # ("Use when" / "Use this when" / "Use whenever" all count)
   case "$desc" in
-    *"Use when"*) : ;;
+    *"Use when"*|*"Use this when"*|*"Use whenever"*) : ;;
     *) warn "$name: description does not contain 'Use when'";;
   esac
 
   # every skill must appear in README as `name`
   grep -q "\`$name\`" README.md 2>/dev/null || err "$name: not listed in README.md"
+
+  # backtick-quoted repo-relative file references must resolve
+  # (catches dead citations like a docs/RESULTS.md that does not exist);
+  # scan SKILL.md and the skill's references/*.md alike
+  for doc in "$f" "$dir"references/*.md; do
+    [ -e "$doc" ] || continue
+    for ref in $(grep -oE '`(docs|references|scripts)/[A-Za-z0-9_./-]+`' "$doc" | tr -d '\`' | sort -u); do
+      [ -e "$dir$ref" ] || [ -e "$ref" ] || warn "$name: $(basename "$doc") references \`$ref\` which resolves neither in the skill dir nor the repo root (external-repo paths need the repo named in surrounding text)"
+    done
+  done
+done
+
+# repo-level docs get the same dead-reference scan
+for doc in docs/*.md README.md; do
+  [ -e "$doc" ] || continue
+  for ref in $(grep -oE '`(docs|references|scripts|skills)/[A-Za-z0-9_./-]+`' "$doc" | tr -d '\`' | sort -u); do
+    [ -e "$ref" ] || warn "$(basename "$doc") references \`$ref\` which does not resolve from the repo root (external-repo paths need the repo named in surrounding text)"
+  done
 done
 
 # README must not list skills that don't exist (only names under a "| `x` |" table cell)
@@ -50,6 +69,29 @@ if [ -f README.md ]; then
   for listed in $(grep -oE '^\| `[a-z0-9-]+`' README.md | grep -oE '[a-z0-9-]+' | sort -u); do
     [ -d "skills/$listed" ] || warn "README lists non-existent skill: $listed"
   done
+fi
+
+# bundled workflow scripts must at least parse (they use module syntax and a
+# top-level return, so wrap the body in an async function for the check)
+if command -v node >/dev/null 2>&1; then
+  for s in skills/*/scripts/*.js; do
+    [ -e "$s" ] || continue
+    tmpbase=$(mktemp)
+    tmp="$tmpbase.mjs"
+    { echo 'async function __check(args, agent, parallel, pipeline, phase, log, budget, workflow) {'
+      sed 's/^export const meta/const meta/' "$s"
+      echo '}'; } > "$tmp"
+    node --check "$tmp" >/dev/null 2>&1 || err "$s: does not parse (node --check, async-wrapped)"
+    rm -f "$tmp" "$tmpbase"
+  done
+else
+  warn "node not found — skipping workflow-script parse checks"
+fi
+
+# the SSP policy ships as two in-repo copies — they must not drift
+if [ -f docs/SSP-POLICY.md ] && [ -f skills/sample-select-polish/references/claude-md-policy.md ]; then
+  diff -q docs/SSP-POLICY.md skills/sample-select-polish/references/claude-md-policy.md >/dev/null \
+    || err "SSP policy copies have drifted: docs/SSP-POLICY.md != skills/sample-select-polish/references/claude-md-policy.md"
 fi
 
 echo "---"
