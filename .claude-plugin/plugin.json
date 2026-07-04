@@ -1,0 +1,9 @@
+{
+  "name": "superkit",
+  "version": "0.1.0",
+  "description": "Meta-infrastructure skills for Claude Code heavy users: automation drift audits, context economy, LLM-ops discipline, risky-edge guards, and SSP orchestration.",
+  "author": { "name": "kota" },
+  "repository": "https://github.com/Kota-Ohno/skills-lib",
+  "license": "MIT",
+  "keywords": ["skills", "claude-code", "llm-ops", "automation", "ssp"]
+}
