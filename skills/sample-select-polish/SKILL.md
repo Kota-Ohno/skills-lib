@@ -67,7 +67,12 @@ Workflow({
     task: "<the full task statement — fresh agents see ONLY this, so spell
            out every requirement and acceptance criterion>",
     guidance: "<optional style/length/format constraints for every draft>",
-    n: 6  // optional, 2..6 (default 6, one per persona)
+    n: 6,  // optional, 2..6 (default 6, one per persona)
+    model: "sonnet",       // optional: model tier for ALL subagents
+                           // ('sonnet' | 'opus' | 'haiku' | 'fable');
+                           // omit to inherit the session model
+    draft_model: "sonnet", // optional: override for drafting agents only
+    judge_model: "opus"    // optional: override for tournament judges only
   }
 })
 ```

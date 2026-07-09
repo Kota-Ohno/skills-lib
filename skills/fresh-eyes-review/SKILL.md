@@ -59,7 +59,13 @@ Workflow({
     target: "<paths or diff command + one-line description of the artifact>",
     scope:  "<optional: what to focus on or explicitly exclude>",
     roles:  [ { key, name, lens }, ... ],   // omit to use the built-in default set
-    alreadyAddressed: [ "<title of each finding fixed so far>", ... ]
+    alreadyAddressed: [ "<title of each finding fixed so far>", ... ],
+    model: "sonnet",           // optional: model tier for ALL subagents
+                               // ('sonnet' | 'opus' | 'haiku' | 'fable');
+                               // omit to inherit the session model
+    review_model: "sonnet",    // optional: override for role reviewers
+    verify_model: "sonnet",    // optional: override for skeptic verifiers
+    synthesize_model: "opus"   // optional: override for the final merge agent
   }
 })
 ```

@@ -11,6 +11,14 @@
 //   scope:            string — optional focus or exclusions
 //   roles:            [{ key, name, lens }] — omit for the built-in default set
 //   alreadyAddressed: [string] — finding titles fixed in prior rounds
+//   model:            string — optional model tier for ALL subagents in this
+//                     run ('sonnet' | 'opus' | 'haiku' | 'fable'); omit to
+//                     inherit the session model. Per LLM-OPS routing, name
+//                     the tier explicitly — review gates are mid tier minimum.
+//   review_model:     string — optional override for the role reviewers
+//   verify_model:     string — optional override for the skeptic verifiers
+//   synthesize_model: string — optional override for the final merge agent
+//                     (whole-report synthesis: strongest available preferred)
 // }
 // returns { summary, findings: [...], false_positives: [...], failed_roles: [...] }
 // (+ synthesize_failed: true when the final merge agent died and the report
@@ -109,6 +117,21 @@ const target = (args && args.target) || 'No target specified.'
 const scope = (args && args.scope) || 'Review everything relevant to your role.'
 const alreadyAddressed = (args && args.alreadyAddressed) || []
 
+// Model routing: per-stage override > run-wide default > session inherit.
+// Values pass straight through to agent()'s opts.model; unknown strings
+// fail loudly here rather than silently at dispatch time.
+const KNOWN_MODELS = ['sonnet', 'opus', 'haiku', 'fable']
+function pickModel(specific, fallback, argName) {
+  const value = specific !== undefined && specific !== null ? specific : fallback
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'string' || KNOWN_MODELS.indexOf(value) === -1)
+    throw new Error('args.' + argName + ' must be one of ' + KNOWN_MODELS.join('|') + ', got: ' + JSON.stringify(value))
+  return value
+}
+const reviewModel = pickModel(args && args.review_model, args && args.model, 'review_model/model')
+const verifyModel = pickModel(args && args.verify_model, args && args.model, 'verify_model/model')
+const synthesizeModel = pickModel(args && args.synthesize_model, args && args.model, 'synthesize_model/model')
+
 function reviewPrompt(role) {
   return [
     'You are a FRESH-EYES reviewer. You have NO knowledge of how or why this artifact was written — no design docs, no conversation history, no statement of intent. Read it cold and judge only what is actually there. This lack of context is the point: it strips out the author\'s assumptions and lets you see problems the author is blind to.',
@@ -163,7 +186,7 @@ var failedRoles = []
 const perRole = await pipeline(
   roles,
   function (role) {
-    return agent(reviewPrompt(role), { label: 'review:' + role.key, phase: 'Review', schema: FINDINGS_SCHEMA })
+    return agent(reviewPrompt(role), { label: 'review:' + role.key, phase: 'Review', schema: FINDINGS_SCHEMA, model: reviewModel })
       .catch(function () { return null })
   },
   function (result, role) {
@@ -179,7 +202,7 @@ const perRole = await pipeline(
         // A failed/empty skeptic must NOT erase the finding it was verifying
         // (an empty verdict is not a refutation — see LLM-OPS "starved skeptic
         // reads as converged"). Keep the finding with verdict: null instead.
-        return agent(verifyPrompt(f), { label: 'verify:' + role.key + ':' + String(f.title || '').slice(0, 24), phase: 'Verify', schema: VERDICT_SCHEMA })
+        return agent(verifyPrompt(f), { label: 'verify:' + role.key + ':' + String(f.title || '').slice(0, 24), phase: 'Verify', schema: VERDICT_SCHEMA, model: verifyModel })
           .then(function (v) { return { finding: f, role: role.key, verdict: v || null } })
           .catch(function () { return { finding: f, role: role.key, verdict: null } })
       }
@@ -250,7 +273,7 @@ var report = await agent(
       return { title: x.finding.title, why: x.verdict && x.verdict.reasoning }
     }), null, 2),
   ].join('\n'),
-  { label: 'synthesize', phase: 'Synthesize', schema: REPORT_SCHEMA }
+  { label: 'synthesize', phase: 'Synthesize', schema: REPORT_SCHEMA, model: synthesizeModel }
 ).catch(function () { return null })
 
 // A dead/empty synthesizer must not eat the round: the raw survivors are in

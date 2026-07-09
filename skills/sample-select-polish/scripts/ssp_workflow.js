@@ -15,6 +15,14 @@
 //   guidance: string — optional style/length/format constraints applied to
 //             every draft (e.g. "under 600 words", "TypeScript only")
 //   n:        number — draft count, 2..6 (default 6; one per persona)
+//   model:    string — optional model tier for ALL subagents in this run
+//             ('sonnet' | 'opus' | 'haiku' | 'fable'); omit to inherit the
+//             session model. Per LLM-OPS routing, name the tier explicitly —
+//             an omitted model silently inherits the session's (often most
+//             expensive) one.
+//   draft_model: string — optional override for the drafting agents only
+//   judge_model: string — optional override for the tournament judges only
+//             (judges are a review gate: mid tier minimum)
 // }
 // returns { winner, persona, candidates, matches, empty_drafts, empty_judgments }
 
@@ -88,6 +96,23 @@ if (rawN !== undefined && rawN !== null) {
   n = Math.max(2, Math.min(6, Math.floor(parsed)));
 }
 
+// Model routing: per-role override > run-wide default > session inherit.
+// Values are passed straight through to agent()'s opts.model; unknown
+// strings fail loudly here rather than silently at dispatch time.
+const KNOWN_MODELS = ["sonnet", "opus", "haiku", "fable"];
+function pickModel(specific, fallback, argName) {
+  const value = specific !== undefined && specific !== null ? specific : fallback;
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || KNOWN_MODELS.indexOf(value) === -1)
+    throw new Error(
+      "args." + argName + " must be one of " + KNOWN_MODELS.join("|") +
+        ", got: " + JSON.stringify(value),
+    );
+  return value;
+}
+const draftModel = pickModel(args && args.draft_model, args && args.model, "draft_model/model");
+const judgeModel = pickModel(args && args.judge_model, args && args.model, "judge_model/model");
+
 function draftPrompt(persona) {
   return [
     "You are drafting an artifact from a cold start — no conversation history, no prior drafts. " +
@@ -139,7 +164,9 @@ log(
       .map(function (p) {
         return p.key;
       })
-      .join(", "),
+      .join(", ") +
+    (draftModel ? " (draft model: " + draftModel + ")" : "") +
+    (judgeModel ? " (judge model: " + judgeModel + ")" : ""),
 );
 const draftResults = await parallel(
   PERSONAS.slice(0, n).map(function (p) {
@@ -149,6 +176,7 @@ const draftResults = await parallel(
       return agent(draftPrompt(p), {
         label: "draft:" + p.key,
         phase: "Sample",
+        model: draftModel,
       })
         .then(function (text) {
           return { key: p.key, text: text };
@@ -209,6 +237,7 @@ while (pool.length > 1) {
           label: label,
           phase: "Select",
           schema: VERDICT_SCHEMA,
+          model: judgeModel,
         })
           .catch(function () {
             return null;
@@ -217,7 +246,7 @@ while (pool.length > 1) {
             if (isVerdict(v)) return v;
             return agent(
               matchPrompt(alive[match.a].text, alive[match.b].text),
-              { label: label + ":retry", phase: "Select", schema: VERDICT_SCHEMA },
+              { label: label + ":retry", phase: "Select", schema: VERDICT_SCHEMA, model: judgeModel },
             ).catch(function () {
               return null;
             });

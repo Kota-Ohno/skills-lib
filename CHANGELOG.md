@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — 2026-07-09
+
+Subagent model routing for the SSP workflows.
+
+- ssp_workflow.js: new `model` (run-wide) plus `draft_model` / `judge_model`
+  (per-role) args, passed through to every `agent()` call's `opts.model`.
+  Unknown tiers fail loudly at parse time instead of silently at dispatch.
+- review_workflow.js: same mechanism with `model` plus `review_model` /
+  `verify_model` / `synthesize_model` per-stage overrides.
+- Both SKILL.md usage blocks document the new args. Omitting them keeps the
+  previous behavior (inherit the session model).
+
 ## 0.1.1 — 2026-07-05
 
 Hardening release: a 4-round fresh-eyes audit (6 lanes + adversarial skeptics,
